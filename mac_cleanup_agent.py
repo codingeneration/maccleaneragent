@@ -20,6 +20,16 @@ import platform
 from pathlib import Path
 from datetime import datetime
 
+
+def human_size(size: int) -> str:
+    """Format a byte count using a readable binary unit."""
+    units = ("B", "KB", "MB", "GB", "TB", "PB")
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.1f} {unit}" if unit != "B" else f"{int(value)} {unit}"
+        value /= 1024
+
 # ── ANSI colors ──────────────────────────────────────────────────────────────
 R = "\033[0m"
 BOLD = "\033[1m"
@@ -40,24 +50,24 @@ def dry(text): print(f"  {DIM}~  {text}{R}")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def human_size(num_bytes: int) -> str:
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if abs(num_bytes) < 1024:
-            return f"{num_bytes:.1f} {unit}"
-        num_bytes /= 1024
-    return f"{num_bytes:.1f} PB"
+import os
 
-def dir_size(path: Path) -> int:
+def dir_size(path):
     total = 0
     try:
-        for entry in path.rglob("*"):
-            try:
-                if entry.is_file(follow_symlinks=False):
-                    total += entry.stat().st_size
-            except (PermissionError, OSError):
-                pass
-    except (PermissionError, OSError):
-        pass
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_symlink():
+                        continue  # skip symlinks entirely to avoid double-counting/loops
+                    if entry.is_file():
+                        total += entry.stat().st_size
+                    elif entry.is_dir():
+                        total += dir_size(entry.path)
+                except (PermissionError, FileNotFoundError, OSError):
+                    continue  # skip files you can't stat (common on macOS system dirs)
+    except (PermissionError, FileNotFoundError, OSError):
+        return 0  # can't even open this dir (e.g. TCC-protected on macOS)
     return total
 
 def safe_remove(path: Path, dry_run: bool) -> int:
